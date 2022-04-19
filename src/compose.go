@@ -61,7 +61,7 @@ func getWatchedRunningContainers() []DockerContainer {
 
 func getWatchedRunningContainerIDs() []string {
 	containerIDs := []string{}
-	out, err := exec.Command("docker", "ps", "-a", "-q", "--filter", "label=docker-compose-watcher.watch=1").Output()
+	out, err := runOutput("docker", "ps", "-a", "-q", "--filter", "label=docker-compose-watcher.watch=1")
 	if err != nil {
 		log.Println("Failed in getWatchedRunningContainerIDs()")
 		log.Fatal(err)
@@ -90,7 +90,7 @@ func getRunningContainerDetails(id string) DockerContainer {
 }
 
 func getImageHash(id string) string {
-	out, err := exec.Command("docker", "inspect", "--type", "image", "--format", "{{.Id}}", id).Output()
+	out, err := runOutput("docker", "inspect", "--type", "image", "--format", "{{.Id}}", id)
 	if err != nil {
 		log.Printf("Failed in getImageHash('%s')\n", id)
 		log.Printf("Result: %s\n", out)
@@ -109,7 +109,7 @@ func getRunningContainerRawDetails(id string) []string {
 		"{{index .Config.Labels \"docker-compose-watcher.dir\"}}",
 	}
 	formatting := strings.Join(details, "|")
-	out, err := exec.Command("docker", "inspect", "--type", "container", "--format", formatting, id).Output()
+	out, err := runOutput("docker", "inspect", "--type", "container", "--format", formatting, id)
 	if err != nil {
 		log.Printf("Failed in getRunningContainerDetails('%s')", id)
 		log.Printf("Result: %s\n", out)
@@ -155,57 +155,54 @@ func getRunningContainerComposeFile(rawDetails []string) string {
 	return fileName
 }
 
-func composePull(composeFile string, serviceName string) bool {
-	err := exec.Command("docker", "compose", "-f", composeFile, "pull", serviceName).Run()
+func run(command string, args ...string) bool {
+	cmd := exec.Command(command, args...)
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
 	if err != nil {
+		log.Printf("Error on exec %s: %v", command, err)
 		return false
 	}
 	return true
+}
+
+func runOutput(command string, args ...string) ([]byte, error) {
+	cmd := exec.Command(command, args...)
+	cmd.Stderr = os.Stderr
+	data, err := cmd.Output()
+	if err != nil {
+		log.Printf("Error on exec %s: %v", command, err)
+	}
+	return data, err
+}
+
+func composePull(composeFile string, serviceName string) bool {
+	return run("docker", "compose", "-f", composeFile, "pull", serviceName)
 }
 
 func composeBuild(composeFile string, serviceName string) bool {
-	err := exec.Command("docker", "compose", "-f", composeFile, "build", "--pull", serviceName).Run()
-	if err != nil {
-		return false
-	}
-	return true
+	return run("docker", "compose", "-f", composeFile, "build", "--pull", serviceName)
 }
 
 func downDockerCompose(composeFile string) bool {
-	err := exec.Command("docker", "compose", "-f", composeFile, "down", "--remove-orphans").Run()
-	if err != nil {
-		return false
-	}
-	return true
+	return run("docker", "compose", "-f", composeFile, "down", "--remove-orphans")
 }
 
 func upDockerCompose(composeFile string) bool {
-	err := exec.Command("docker", "compose", "-f", composeFile, "up", "-d").Run()
-	if err != nil {
-		return false
-	}
-	return true
+	return run("docker", "compose", "-f", composeFile, "up", "-d")
 }
 
 func upDockerService(composeFile string, service string) bool {
-	err := exec.Command("docker", "compose", "-f", composeFile, "up", "-d", service).Run()
-	if err != nil {
-		return false
-	}
-	return true
+	return run("docker", "compose", "-f", composeFile, "up", "-d", service)
 }
 
 func cleanUp() bool {
-	err := exec.Command("docker", "system", "prune", "-a", "-f").Run()
-	if err != nil {
-		return false
-	}
-	return true
+	return run("docker", "system", "prune", "-a", "-f")
 }
 
 func parseComposeYaml(composeFile string) ComposeYaml {
 	result := ComposeYaml{}
-	data, err := exec.Command("docker", "compose", "-f", composeFile, "config").Output()
+	data, err := runOutput("docker", "compose", "-f", composeFile, "config")
 	if err == nil {
 		err = yaml.Unmarshal(data, &result)
 	}
